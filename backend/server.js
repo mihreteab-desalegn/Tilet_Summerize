@@ -9,7 +9,11 @@ dotenv.config();
 const app = express();
 const PORT = 5000;
 
-app.options('*', cors());
+app.use(cors({
+  origin: 'https://tilet-summerize.onrender.com', // allow your frontend
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true // if you use cookies or auth headers
+}));
 
 app.use(express.json());
 
