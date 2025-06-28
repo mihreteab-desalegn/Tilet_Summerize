@@ -163,6 +163,66 @@ app.post("/api/process", async (req, res) => {
   }
 });
 
+// New SEO-friendly preview route for Telegram and social media
+app.get("/preview/:videoId", async (req, res) => {
+  const videoId = req.params.videoId;
+
+  if (!videoId) {
+    return res.status(400).send("Video ID is required.");
+  }
+
+  try {
+    const result = await ytSearch(videoId);
+    if (!result || !result.videos || result.videos.length === 0) {
+      return res.status(404).send("Video not found.");
+    }
+
+    const video = result.videos[0];
+    const title = video.title || "Tilet - YouTube Video Summarizer";
+    const description = video.description || "Watch and summarize YouTube videos easily with Tilet.";
+    const image = video.thumbnail || "https://tilet-summerize.onrender.com/default-thumbnail.jpg";
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+
+    // Serve HTML with dynamic meta tags for SEO/social previews
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${title}</title>
+
+  <!-- Primary Meta Tags -->
+  <meta name="title" content="${title}" />
+  <meta name="description" content="${description}" />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="video.other" />
+  <meta property="og:url" content="${url}" />
+  <meta property="og:title" content="${title}" />
+  <meta property="og:description" content="${description}" />
+  <meta property="og:image" content="${image}" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="player" />
+  <meta name="twitter:title" content="${title}" />
+  <meta name="twitter:description" content="${description}" />
+  <meta name="twitter:image" content="${image}" />
+  <meta name="twitter:player" content="${url}" />
+  <meta name="twitter:player:width" content="1280" />
+  <meta name="twitter:player:height" content="720" />
+
+  <meta http-equiv="refresh" content="0; URL='https://tilet-summerize.onrender.com/detail/${videoId}'" />
+</head>
+<body>
+  <p>Redirecting to video page...</p>
+</body>
+</html>`);
+  } catch (error) {
+    console.error("Error generating preview page:", error);
+    res.status(500).send("Internal Server Error");
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
