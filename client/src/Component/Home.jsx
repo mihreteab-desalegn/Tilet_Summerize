@@ -20,7 +20,7 @@ const Home = () => {
         setDuration("");
 
         try {
-            const response = await axios.post("http://localhost:5000/api/process", { url });
+            const response = await axios.post("https://tilet-server.onrender.com/api/process", { url });
 
             if (response.data) {
                 setTitle(response.data.title || "");
