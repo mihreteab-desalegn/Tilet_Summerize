@@ -39,7 +39,7 @@ const Detail = () => {
             setError("");
             try {
                 const url = `https://www.youtube.com/watch?v=${videoId}`;
-                const response = await axios.post("http://localhost:5000/api/process", {
+                const response = await axios.post("https://tilet-server.onrender.com/api/process", {
                     url,
                 });
                 if (response.data) {
