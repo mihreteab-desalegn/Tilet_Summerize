@@ -194,7 +194,7 @@ const Detail = () => {
         <div className=" bg-gradient-to-br from-white to-blue-100">
             <div className="h-24 flex items-center px-20 text-2xl font-bold text-blue-500">
                 <a href="/">
-                    Tilet Downloder
+                    Tilet Sumerizer & Quiz app
                 </a>
 
             </div>
