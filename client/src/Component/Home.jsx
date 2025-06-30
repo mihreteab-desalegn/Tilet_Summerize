@@ -141,7 +141,7 @@ const Home = () => {
 
 
 
-            <div className="fixed -bottom-28 -right-[500px] w-full h-[180px] overflow-hidden -rotate-[45deg]">
+            <div className="fixed -bottom-28 -right-10 w-full h-[180px] overflow-hidden -rotate-[45deg]">
                 <svg width="100%" height="180" viewBox="0 0 600 180" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <linearGradient id="blueGradient" x1="0" y1="0" x2="1" y2="1">
@@ -164,7 +164,7 @@ const Home = () => {
                 </svg>
             </div>
 
-            <div className="fixed -top-28 -left-[500px] w-full h-[180px] overflow-hidden -rotate-[45deg]">
+            <div className="fixed -top-28 -left-10 w-full h-[180px] overflow-hidden -rotate-[45deg]">
                 <svg width="100%" height="180" viewBox="0 0 600 180" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                         <linearGradient id="blueGradient" x1="0" y1="0" x2="1" y2="1">
