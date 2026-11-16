@@ -16,6 +16,8 @@ import { Document, Packer, Paragraph, TextRun } from "docx";
 import { saveAs } from "file-saver";
 import Footer from "./Footer";
 
+const API_URL = import.meta.env.VITE_API_URL || "https://tilet-server.onrender.com";
+
 const removeEmojis = (str) => {
     return str.replace(
         /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uFE0F|\uD83E[\uDD00-\uDDFF])/g,
@@ -23,52 +25,148 @@ const removeEmojis = (str) => {
     );
 };
 
+const STEP_PERCENTAGES = {
+    searching: { percent: 20, message: "Searching for video..." },
+    transcript: { percent: 45, message: "Fetching video transcript..." },
+    fallback: { percent: 45, message: "Analyzing video description..." },
+    summarizing: { percent: 70, message: "Generating study notes with AI..." },
+    mcqs: { percent: 90, message: "Building interactive quiz..." },
+    cached: { percent: 95, message: "Loading from cache..." },
+    done: { percent: 100, message: "Ready!" },
+};
+
 const Detail = () => {
     const { videoId } = useParams();
     const [data, setData] = useState(null);
     const [error, setError] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [progressPercent, setProgressPercent] = useState(15);
+    const [progressMessage, setProgressMessage] = useState("Connecting to video...");
     const [userAnswers, setUserAnswers] = useState({});
     const [submitted, setSubmitted] = useState(false);
     const contentRef = useRef();
     const [showOptions, setShowOptions] = useState(false);
 
     useEffect(() => {
-        const fetchVideoData = async () => {
-            setIsLoading(true);
-            setError("");
+        let es = null;
+
+        const fallbackFetch = async (targetUrl) => {
             try {
-                const url = `https://www.youtube.com/watch?v=${videoId}`;
-                const response = await axios.post("https://tilet-server.onrender.com/api/process", {
-                    url,
-                });
+                setProgressPercent(30);
+                setProgressMessage("Analyzing video details...");
+                const timer = setInterval(() => {
+                    setProgressPercent((prev) => (prev < 85 ? prev + 10 : prev));
+                }, 800);
+
+                const response = await axios.post(`${API_URL}/api/process`, { url: targetUrl });
+                clearInterval(timer);
+
                 if (response.data) {
-                    setData({ ...response.data, url });
+                    setData({ ...response.data, url: targetUrl });
+                    setProgressPercent(100);
                 } else {
                     setError("No video data found.");
                 }
             } catch (err) {
-                setError("Failed to fetch video data.");
+                setError(
+                    err.response?.data?.error || "Failed to fetch video data. Please try again."
+                );
             } finally {
                 setIsLoading(false);
             }
         };
 
+        const fetchVideoData = () => {
+            setIsLoading(true);
+            setError("");
+            setProgressPercent(15);
+            setProgressMessage("Connecting to video...");
+
+            const url = `https://www.youtube.com/watch?v=${videoId}`;
+
+            try {
+                const streamUrl = `${API_URL}/api/process/stream?url=${encodeURIComponent(url)}`;
+                es = new EventSource(streamUrl);
+
+                es.addEventListener("progress", (e) => {
+                    try {
+                        const parsed = JSON.parse(e.data);
+                        const stepInfo = STEP_PERCENTAGES[parsed.step] || {
+                            percent: 50,
+                            message: parsed.message || "Processing...",
+                        };
+                        setProgressPercent(stepInfo.percent);
+                        setProgressMessage(stepInfo.message);
+                    } catch {
+                        // Ignore parse error
+                    }
+                });
+
+                es.addEventListener("done", (e) => {
+                    try {
+                        const result = JSON.parse(e.data);
+                        setData({ ...result, url });
+                        setProgressPercent(100);
+                        setProgressMessage("Complete!");
+                    } catch {
+                        // Ignore parse error
+                    } finally {
+                        es?.close();
+                        setIsLoading(false);
+                    }
+                });
+
+                es.addEventListener("error", () => {
+                    es?.close();
+                    fallbackFetch(url);
+                });
+
+                es.onerror = () => {
+                    es?.close();
+                    fallbackFetch(url);
+                };
+            } catch {
+                fallbackFetch(url);
+            }
+        };
+
         if (videoId) fetchVideoData();
+
+        return () => {
+            if (es) es.close();
+        };
     }, [videoId]);
 
     if (isLoading) {
         return (
-            <div className="flex justify-center bg-gradient-to-br from-white to-blue-100  items-center min-h-screen">
-                <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+            <div className="flex flex-col justify-center items-center min-h-screen bg-gradient-to-br from-white to-blue-100 p-6">
+                <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-xl border border-blue-100 space-y-4 text-center">
+                    <h2 className="text-xl font-bold text-blue-700">Tilet Summarizer</h2>
+                    <div className="flex items-center justify-between text-xs font-semibold text-blue-600 px-1">
+                        <span className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping inline-block" />
+                            {progressMessage}
+                        </span>
+                        <span>{progressPercent}%</span>
+                    </div>
+                    <div className="w-full bg-blue-100 rounded-full h-3 overflow-hidden shadow-inner">
+                        <div
+                            className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-500 ease-out"
+                            style={{ width: `${progressPercent}%` }}
+                        />
+                    </div>
+                    <p className="text-xs text-gray-500">
+                        Generating AI study notes and quiz questions. Please hold on...
+                    </p>
+                </div>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="flex bg-gradient-to-br from-white to-blue-100  items-center justify-center min-h-screen text-red-600 text-lg font-semibold">
-                <AlertCircle className="mr-2" />
+            <div className="flex bg-gradient-to-br from-white to-blue-100 items-center justify-center min-h-screen text-red-600 text-lg font-semibold px-4 text-center">
+                <AlertCircle className="mr-2 shrink-0" />
                 {error}
             </div>
         );
@@ -78,10 +176,11 @@ const Detail = () => {
 
     const { title, mcqs, summary } = data;
 
-    // ✅ Fix: Safely parse mcqs
+    // Safely parse mcqs
     let question = [];
     try {
         question = typeof mcqs === "string" ? JSON.parse(mcqs) : mcqs || [];
+        if (!Array.isArray(question)) question = [];
     } catch (err) {
         console.error("Invalid MCQ format:", err);
         question = [];
@@ -94,7 +193,8 @@ const Detail = () => {
         }));
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = (e) => {
+        if (e) e.preventDefault();
         setSubmitted(true);
     };
 
@@ -109,13 +209,14 @@ const Detail = () => {
     };
 
     const exportAsPDF = () => {
+        if (!contentRef.current) return;
         const doc = new jsPDF();
         const elements = contentRef.current.querySelectorAll("*");
         let y = 10;
         const pageHeight = doc.internal.pageSize.height;
 
         for (const el of elements) {
-            let text = removeEmojis(el.innerText.trim());
+            let text = removeEmojis(el.innerText?.trim() || "");
             if (!text) continue;
 
             if (el.tagName === "H1") {
@@ -141,15 +242,16 @@ const Detail = () => {
             y += blockHeight + 4;
         }
 
-        doc.save("export.pdf");
+        doc.save(`${title ? title.slice(0, 30) : "summary"}.pdf`);
     };
 
     const exportAsDocx = () => {
+        if (!contentRef.current) return;
         const elements = contentRef.current.querySelectorAll("*");
         const docChildren = [];
 
         for (const el of elements) {
-            const text = removeEmojis(el.innerText.trim());
+            const text = removeEmojis(el.innerText?.trim() || "");
             if (!text) continue;
 
             let size = 24;
@@ -186,20 +288,19 @@ const Detail = () => {
         });
 
         Packer.toBlob(doc).then((blob) => {
-            saveAs(blob, "export.docx");
+            saveAs(blob, `${title ? title.slice(0, 30) : "summary"}.docx`);
         });
     };
 
     return (
-        <div className=" bg-gradient-to-br from-white to-blue-100">
-            <div className="h-24 flex items-center px-20 text-2xl font-bold text-blue-500">
-                <a href="/">
-                    Tilet Sumerizer & Quiz app
+        <div className="bg-gradient-to-br from-white to-blue-100 min-h-screen">
+            <div className="h-24 flex items-center px-6 sm:px-20 text-2xl font-bold text-blue-500">
+                <a href="/" className="hover:text-blue-600 transition-colors">
+                    Tilet Summarizer &amp; Quiz app
                 </a>
-
             </div>
-            <div className="min-h-screen flex flex-col md:flex-row gap-5 md:gap-20 px-4 md:px-8 ">
 
+            <div className="flex flex-col md:flex-row gap-5 md:gap-20 px-4 md:px-8">
                 {/* Left Column */}
                 <div className="w-full md:max-w-xl p-4 md:p-6 text-center space-y-6">
                     <div className="relative flex justify-center items-center mb-4 h-auto min-h-[150px]">
@@ -213,12 +314,11 @@ const Detail = () => {
                         ></iframe>
                     </div>
 
-
                     <div className="bg-white p-4 md:p-6 rounded-lg shadow-md w-full text-left mt-10">
                         {submitted && (
                             <div className="mb-6 p-4 md:p-6 rounded-lg bg-blue-50 border border-blue-300 shadow-lg flex items-center space-x-4 animate-fade-in relative group">
                                 <svg
-                                    className="w-10 h-10 md:w-12 md:h-12 text-green-600"
+                                    className="w-10 h-10 md:w-12 md:h-12 text-green-600 shrink-0"
                                     viewBox="0 0 52 52"
                                 >
                                     <path
@@ -237,73 +337,80 @@ const Detail = () => {
                             </div>
                         )}
 
-                        {question.map(({ id, question, choices, answer, explanation }) => {
-                            const selected = userAnswers[id];
-                            const isCorrect = selected === answer;
+                        {question.length === 0 ? (
+                            <p className="text-gray-500 italic">No quiz questions available for this video.</p>
+                        ) : (
+                            question.map(({ id, question: qText, choices, answer, explanation }) => {
+                                const selected = userAnswers[id];
+                                const isCorrect = selected === answer;
 
-                            return (
-                                <div
-                                    key={id}
-                                    className={`mb-6 p-4 rounded border ${submitted
-                                        ? isCorrect
-                                            ? "border-green-400 bg-green-50"
-                                            : "border-red-400 bg-red-50"
-                                        : "border-gray-300"
+                                return (
+                                    <div
+                                        key={id}
+                                        className={`mb-6 p-4 rounded border transition-colors ${
+                                            submitted
+                                                ? isCorrect
+                                                    ? "border-green-400 bg-green-50"
+                                                    : "border-red-400 bg-red-50"
+                                                : "border-gray-300"
                                         }`}
-                                >
-                                    <h3 className="text-base md:text-lg font-semibold mb-2">
-                                        Q{id}. {question}
-                                    </h3>
+                                    >
+                                        <h3 className="text-base md:text-lg font-semibold mb-2">
+                                            Q{id}. {qText}
+                                        </h3>
 
-                                    {!submitted ? (
-                                        <form>
-                                            {choices.map((choice, idx) => (
-                                                <div key={idx} className="mb-1">
-                                                    <label className="inline-flex items-center">
-                                                        <input
-                                                            type="radio"
-                                                            name={`question-${id}`}
-                                                            value={choice}
-                                                            className="form-radio text-blue-600"
-                                                            checked={userAnswers[id] === choice}
-                                                            onChange={() => handleChange(id, choice)}
-                                                        />
-                                                        <span className="ml-2">{choice}</span>
-                                                    </label>
-                                                </div>
-                                            ))}
-                                        </form>
-                                    ) : (
-                                        <>
-                                            <p>
-                                                <span className="font-medium">Your answer:</span>{" "}
-                                                <span
-                                                    className={
-                                                        isCorrect ? "text-green-600" : "text-red-600"
-                                                    }
-                                                >
-                                                    {selected || "No answer selected"}
-                                                </span>
-                                            </p>
-                                            {!isCorrect && (
+                                        {!submitted ? (
+                                            <form>
+                                                {choices?.map((choice, idx) => (
+                                                    <div key={idx} className="mb-1">
+                                                        <label className="inline-flex items-center cursor-pointer">
+                                                            <input
+                                                                type="radio"
+                                                                name={`question-${id}`}
+                                                                value={choice}
+                                                                className="form-radio text-blue-600"
+                                                                checked={userAnswers[id] === choice}
+                                                                onChange={() => handleChange(id, choice)}
+                                                            />
+                                                            <span className="ml-2 text-gray-800">{choice}</span>
+                                                        </label>
+                                                    </div>
+                                                ))}
+                                            </form>
+                                        ) : (
+                                            <>
                                                 <p>
-                                                    <span className="font-medium">Correct answer:</span>{" "}
-                                                    <span className="text-green-600">{answer}</span>
+                                                    <span className="font-medium">Your answer:</span>{" "}
+                                                    <span
+                                                        className={
+                                                            isCorrect ? "text-green-600 font-semibold" : "text-red-600 font-semibold"
+                                                        }
+                                                    >
+                                                        {selected || "No answer selected"}
+                                                    </span>
                                                 </p>
-                                            )}
-                                            <p className="text-gray-700 mt-2">
-                                                💡 <strong>Explanation:</strong> {explanation}
-                                            </p>
-                                        </>
-                                    )}
-                                </div>
-                            );
-                        })}
+                                                {!isCorrect && (
+                                                    <p>
+                                                        <span className="font-medium">Correct answer:</span>{" "}
+                                                        <span className="text-green-600 font-semibold">{answer}</span>
+                                                    </p>
+                                                )}
+                                                {explanation && (
+                                                    <p className="text-gray-700 mt-2 text-sm bg-white/70 p-2 rounded">
+                                                        💡 <strong>Explanation:</strong> {explanation}
+                                                    </p>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        )}
 
-                        {!submitted && (
+                        {!submitted && question.length > 0 && (
                             <button
                                 onClick={handleSubmit}
-                                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 w-full md:w-auto"
+                                className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 w-full md:w-auto font-medium transition-colors shadow"
                             >
                                 Submit
                             </button>
@@ -326,12 +433,13 @@ const Detail = () => {
                             <p className="italic text-gray-500">No summary available.</p>
                         )}
                     </div>
+
                     <div className="relative inline-block text-left w-full mt-8 shadow-xl">
                         <button
                             onClick={() => setShowOptions(!showOptions)}
-                            className="bg-blue-500 w-full font-semibold text-white px-4 py-2 rounded hover:bg-blue-600 flex"
+                            className="bg-blue-500 w-full font-semibold text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center justify-between"
                         >
-                            Export Summary
+                            <span>Export Summary</span>
                             <span className="right-2 ml-auto">
                                 {showOptions ? <ChevronUp /> : <ChevronDown />}
                             </span>
@@ -344,9 +452,9 @@ const Detail = () => {
                                         exportAsPDF();
                                         setShowOptions(false);
                                     }}
-                                    className=" w-full text-left px-4 py-2 hover:bg-blue-100 flex"
+                                    className="w-full text-left px-4 py-2 hover:bg-blue-100 flex items-center justify-between"
                                 >
-                                    Export as PDF
+                                    <span>Export as PDF</span>
                                     <span className="right-2 ml-auto">
                                         <FileType2 />
                                     </span>
@@ -356,9 +464,9 @@ const Detail = () => {
                                         exportAsDocx();
                                         setShowOptions(false);
                                     }}
-                                    className="flex w-full text-left px-4 py-2 hover:bg-blue-100"
+                                    className="flex w-full text-left px-4 py-2 hover:bg-blue-100 items-center justify-between"
                                 >
-                                    Export as DOCX
+                                    <span>Export as DOCX</span>
                                     <span className="right-2 ml-auto">
                                         <FileText />
                                     </span>
@@ -370,7 +478,6 @@ const Detail = () => {
             </div>
             <Footer />
         </div>
-
     );
 };
 
