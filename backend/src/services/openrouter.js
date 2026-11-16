@@ -5,12 +5,13 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
  * @param {string} systemPrompt
  * @param {string} userPrompt
  * @param {number} [temperature=0.3]
+ * @param {number} [maxTokens=2500]
  * @returns {Promise<string>}
  */
-const callOpenRouter = async (systemPrompt, userPrompt, temperature = 0.3) => {
+const callOpenRouter = async (systemPrompt, userPrompt, temperature = 0.3, maxTokens = 2500) => {
     const API_KEY = process.env.OPENROUTER_API_KEY;
     if (!API_KEY || API_KEY === "your_openrouter_api_key_here") {
-        const err = new Error("OPENROUTER_API_KEY is missing. Please set your key in backend/.env");
+        const err = new Error("OPENROUTER_API_KEY is missing. Please set your key in backend/.env or Render dashboard.");
         err.status = 500;
         throw err;
     }
@@ -21,10 +22,13 @@ const callOpenRouter = async (systemPrompt, userPrompt, temperature = 0.3) => {
         headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${API_KEY}`,
+            "HTTP-Referer": "https://tilet-summerize.onrender.com",
+            "X-Title": "Tilet Summarizer",
         },
         body: JSON.stringify({
             model: MODEL,
             temperature,
+            max_tokens: maxTokens,
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },
@@ -34,7 +38,18 @@ const callOpenRouter = async (systemPrompt, userPrompt, temperature = 0.3) => {
 
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`OpenRouter API Error: ${response.status} — ${errorText}`);
+        let parsedMessage = errorText;
+        try {
+            const parsed = JSON.parse(errorText);
+            if (parsed.error?.message) {
+                parsedMessage = parsed.error.message;
+            }
+        } catch {
+            // keep raw errorText
+        }
+        const err = new Error(`OpenRouter API Error (${response.status}): ${parsedMessage}`);
+        err.status = response.status >= 500 ? 502 : response.status;
+        throw err;
     }
 
     const data = await response.json();
@@ -47,13 +62,18 @@ const callOpenRouter = async (systemPrompt, userPrompt, temperature = 0.3) => {
  * @returns {Promise<string>} Markdown-formatted summary
  */
 export const summarizeText = async (text) => {
+    // Truncate to safe length to fit within credit and token limits
+    const safeText = text && text.length > 35000 ? text.slice(0, 35000) + "\n\n[Transcript truncated for length]" : text;
+
     return callOpenRouter(
         "You are an expert educational content creator. Summarize video transcripts for students in an engaging, study-friendly format.",
         `Summarize the following video content for students. ALWAYS write in English regardless of the language of the input.
 
 Summarize the following video transcript or description for students using a friendly tone, clear subtopic headings with emojis, bullet points for key ideas, interactive prompts (like Tip or facts), and include a title, short intro, main content sections, a quick recap, examples that interact with real life, and a conclusion to make it engaging and study-friendly. Before each subtopic add one blank line, and provide detailed explanations with a few emojis. Use different font sizes depending on the situation, bullet points, numbers, and indentation for interactive structure.
 
-Content to summarize: \n\n${text}`
+Content to summarize: \n\n${safeText}`,
+        0.3,
+        2500
     );
 };
 
@@ -76,7 +96,8 @@ export const generateMcqs = async (summary) => {
 Respond ONLY with a JSON array of 15 questions. No extra text or formatting.
 
 Summary:\n\n${summary}`,
-        0.3
+        0.3,
+        2000
     );
 
     // Clean up code blocks if present
