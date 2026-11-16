@@ -55,13 +55,8 @@ const processVideo = async (url, language, onProgress) => {
     onProgress?.("summarizing", "Generating summary with AI...");
     summary = await summarizeText(textToSummarize);
 
-    try {
-        onProgress?.("mcqs", "Building quiz questions...");
-        mcqs = await generateMcqs(summary);
-    } catch (mcqErr) {
-        console.warn("MCQ generation failed:", mcqErr.message);
-        mcqs = [];
-    }
+    onProgress?.("mcqs", "Building quiz questions...");
+    mcqs = await generateMcqs(summary);
 
     const result = {
         title:     video.title,

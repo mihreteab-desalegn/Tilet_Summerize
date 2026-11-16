@@ -176,54 +176,15 @@ const Detail = () => {
 
     const { title, mcqs, summary } = data;
 
-    // Safely parse mcqs (supports Array, JSON string, markdown codeblocks, and wrapper objects)
-    const parseQuestions = (raw) => {
-        if (!raw) return [];
-        if (Array.isArray(raw)) return raw;
-        if (typeof raw === "object") {
-            for (const key of ["questions", "mcqs", "quiz", "data"]) {
-                if (Array.isArray(raw[key])) return raw[key];
-            }
-            return [];
-        }
-        if (typeof raw !== "string") return [];
-
-        const cleaned = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
-        try {
-            const parsed = JSON.parse(cleaned);
-            if (Array.isArray(parsed)) return parsed;
-            if (parsed && typeof parsed === "object") {
-                for (const key of ["questions", "mcqs", "quiz", "data"]) {
-                    if (Array.isArray(parsed[key])) return parsed[key];
-                }
-            }
-        } catch {}
-
-        const start = cleaned.indexOf("[");
-        const end = cleaned.lastIndexOf("]");
-        if (start !== -1 && end > start) {
-            try {
-                const parsed = JSON.parse(cleaned.slice(start, end + 1));
-                if (Array.isArray(parsed)) return parsed;
-            } catch {}
-        }
-
-        if (start !== -1) {
-            const partial = cleaned.slice(start);
-            const lastBrace = partial.lastIndexOf("}");
-            if (lastBrace !== -1) {
-                try {
-                    const repaired = partial.slice(0, lastBrace + 1) + "]";
-                    const parsed = JSON.parse(repaired);
-                    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-                } catch {}
-            }
-        }
-
-        return [];
-    };
-
-    const question = parseQuestions(mcqs);
+    // Safely parse mcqs
+    let question = [];
+    try {
+        question = typeof mcqs === "string" ? JSON.parse(mcqs) : mcqs || [];
+        if (!Array.isArray(question)) question = [];
+    } catch (err) {
+        console.error("Invalid MCQ format:", err);
+        question = [];
+    }
 
     const handleChange = (questionId, selectedChoice) => {
         setUserAnswers((prev) => ({

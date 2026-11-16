@@ -57,76 +57,13 @@ const callOpenRouter = async (systemPrompt, userPrompt, temperature = 0.3, maxTo
 };
 
 /**
- * Safely parses and extracts a JSON array of MCQ objects from raw LLM text.
- * Handles code blocks, objects with wrapper keys, and truncated JSON arrays.
- * @param {string|any} text
- * @returns {Array} Array of question objects
- */
-export const extractJsonArray = (text) => {
-    if (!text) return [];
-    if (Array.isArray(text)) return text;
-    if (typeof text === "object") {
-        for (const key of ["questions", "mcqs", "quiz", "data"]) {
-            if (Array.isArray(text[key])) return text[key];
-        }
-        return [];
-    }
-    if (typeof text !== "string") return [];
-
-    // Strip markdown code fences if present
-    const cleaned = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
-
-    // 1. Try direct parse
-    try {
-        const parsed = JSON.parse(cleaned);
-        if (Array.isArray(parsed)) return parsed;
-        if (parsed && typeof parsed === "object") {
-            for (const key of ["questions", "mcqs", "quiz", "data"]) {
-                if (Array.isArray(parsed[key])) return parsed[key];
-            }
-        }
-    } catch {
-        // Fall through to substring extraction
-    }
-
-    // 2. Extract between first '[' and last ']'
-    const start = cleaned.indexOf("[");
-    const end = cleaned.lastIndexOf("]");
-    if (start !== -1 && end > start) {
-        try {
-            const parsed = JSON.parse(cleaned.slice(start, end + 1));
-            if (Array.isArray(parsed)) return parsed;
-        } catch {
-            // Fall through to truncated repair
-        }
-    }
-
-    // 3. Repair partially truncated JSON array (if max_tokens cut it off)
-    if (start !== -1) {
-        const partial = cleaned.slice(start);
-        const lastBrace = partial.lastIndexOf("}");
-        if (lastBrace !== -1) {
-            try {
-                const repaired = partial.slice(0, lastBrace + 1) + "]";
-                const parsed = JSON.parse(repaired);
-                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-            } catch {
-                // Ignore repair failure
-            }
-        }
-    }
-
-    return [];
-};
-
-/**
  * Summarises video transcript or description for students using original prompt.
  * @param {string} text - Transcript or description text
  * @returns {Promise<string>} Markdown-formatted summary
  */
 export const summarizeText = async (text) => {
-    // Truncate to safe length (15,000 chars) to prevent exceeding prompt token limits on multi-byte scripts
-    const safeText = text && text.length > 15000 ? text.slice(0, 15000) + "\n\n[Transcript truncated for length]" : text;
+    // Truncate to safe length to fit within credit and token limits
+    const safeText = text && text.length > 35000 ? text.slice(0, 35000) + "\n\n[Transcript truncated for length]" : text;
 
     return callOpenRouter(
         "You are an expert educational content creator. Summarize video transcripts for students in an engaging, study-friendly format.",
@@ -143,37 +80,28 @@ Content to summarize: \n\n${safeText}`,
 /**
  * Generates multiple-choice quiz questions from a summary using original prompt.
  * @param {string} summary - Markdown summary text
- * @returns {Promise<Array>} Array of question objects
+ * @returns {Promise<string>} JSON string array of question objects
  */
 export const generateMcqs = async (summary) => {
-    if (!summary || typeof summary !== "string" || summary.trim().length === 0) {
-        return [];
-    }
+    const rawText = await callOpenRouter(
+        "You are an expert quiz creator. You only respond with valid JSON arrays, no markdown, no commentary. ALL questions and answers MUST be in English only.",
+        `Based on the following educational summary, generate 20 multiple-choice questions in JSON format. Each question should include:
 
-    const safeSummary = summary.length > 8000 ? summary.slice(0, 8000) : summary;
-
-    try {
-        const rawText = await callOpenRouter(
-            "You are an expert quiz creator. You only respond with a valid JSON array of question objects, with no markdown code fences and no commentary. All questions and answers must be in English only.",
-            `Based on the following educational summary, generate 10 multiple-choice questions in JSON format. Each question should include:
-
-- id (number 1 to 10)
+- id (string or number)
 - question (string)
-- choices (array of 4 distinct strings)
-- answer (string, exactly matching one of the choices)
+- choices (array of 4 strings)
+- answer (string)
 - explanation (string explaining why the correct answer is right and others are wrong)
 
-Respond ONLY with a JSON array of 10 questions.
+Respond ONLY with a JSON array of 15 questions. No extra text or formatting.
 
-Summary:
-${safeSummary}`,
-            0.3,
-            2500
-        );
+Summary:\n\n${summary}`,
+        0.3,
+        2000
+    );
 
-        return extractJsonArray(rawText);
-    } catch (err) {
-        console.warn("generateMcqs error:", err.message);
-        return [];
-    }
+    // Clean up code blocks if present
+    const cleaned = rawText.replace(/```(?:json)?/g, "").replace(/```/g, "").trim();
+
+    return cleaned;
 };
