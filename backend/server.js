@@ -24,19 +24,60 @@ app.use(helmet({
 }));
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173")
-    .split(",")
-    .map((s) => s.trim());
+const defaultAllowedOrigins = [
+    "https://tilet-summerize.onrender.com",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:4173",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+];
 
-app.use(cors({
+const envOrigins = (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+
+const allowedOriginsSet = new Set([...defaultAllowedOrigins, ...envOrigins]);
+
+const isOriginAllowed = (origin) => {
+    // Allow non-browser requests (server-to-server, curl, health checks)
+    if (!origin) return true;
+
+    const normalized = origin.trim().replace(/\/+$/, "");
+
+    // Direct match against allowed set or wildcard
+    if (allowedOriginsSet.has("*") || allowedOriginsSet.has(normalized)) return true;
+
+    // Allow all onrender.com subdomains for frontend deployments/previews
+    try {
+        const parsed = new URL(normalized);
+        if (parsed.hostname.endsWith(".onrender.com")) {
+            return true;
+        }
+    } catch {
+        // Invalid origin URL format
+    }
+
+    return false;
+};
+
+const corsOptions = {
     origin: (origin, callback) => {
-        // Allow server-to-server requests (no origin) or whitelisted origins
-        if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-        callback(new Error(`CORS: origin '${origin}' not allowed`));
+        if (isOriginAllowed(origin)) {
+            return callback(null, true);
+        }
+        console.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
+        return callback(null, false);
     },
     methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
     credentials: true,
-}));
+    optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(express.json());
 
